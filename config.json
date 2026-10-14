@@ -1,1 +1,33 @@
-{"api_keys":[],"catalog_refresh_min":30,"cb_failure_threshold":5,"cb_timeout_sec":30,"circuit_breaker_enabled":true,"cooldown_map":"0,15,60,120,300","default_model":"qwen/qwen3.8-27b","direct_fallback":true,"direct_fallback_quota":10,"fallback_models":["deepseek/deepseek-v4-flash-0731","z-ai/glm-5.2","minimax/minimax-m3"],"free_proxy_enabled":true,"free_proxy_refresh_min":30,"hourly_per_ip":20,"listen_addr":"127.0.0.1:47831","max_attempts":3,"max_concurrent_requests":64,"metrics_enabled":true,"proxy_file":"data/proxies.txt","rate_limit_enabled":true,"rate_limit_max_keys":4096,"rate_limit_requests":60,"rate_limit_window_sec":3600,"redact_logs":true,"request_timeout_sec":120,"skip_upstream_check":true,"ui_password":"","upstream_base_url":"https://www.tryingopen.com"}
+{
+  "api_keys": [],
+  "catalog_refresh_min": 30,
+  "cb_failure_threshold": 5,
+  "cb_timeout_sec": 30,
+  "circuit_breaker_enabled": true,
+  "cooldown_map": "0,15,60,120,300",
+  "default_model": "qwen/qwen3.8-27b",
+  "direct_fallback": true,
+  "direct_fallback_quota": 10,
+  "fallback_models": [
+    "deepseek/deepseek-v4-flash-0731",
+    "z-ai/glm-5.2",
+    "minimax/minimax-m3"
+  ],
+  "free_proxy_enabled": true,
+  "free_proxy_refresh_min": 30,
+  "hourly_per_ip": 20,
+  "listen_addr": "127.0.0.1:47831",
+  "max_attempts": 3,
+  "max_concurrent_requests": 64,
+  "metrics_enabled": true,
+  "proxy_file": "data/proxies.txt",
+  "rate_limit_enabled": true,
+  "rate_limit_max_keys": 4096,
+  "rate_limit_requests": 60,
+  "rate_limit_window_sec": 3600,
+  "redact_logs": true,
+  "request_timeout_sec": 120,
+  "skip_upstream_check": true,
+  "ui_password": "",
+  "upstream_base_url": "https://www.tryingopen.com"
+}
