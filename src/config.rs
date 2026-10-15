@@ -74,7 +74,7 @@ pub struct Config {
     /// 免费代理刷新周期（分钟）
     #[serde(default = "default_free_proxy_min")]
     pub free_proxy_refresh_min: u64,
-    /// 每 24h UTC 日限流（按 IP 配额）（tryingopen 站点约束，用于代理选择/冷却语义）
+    /// 每小时限流（按 IP 配额）（tryingopen 站点约束：20/小时/IP，用于代理选择/冷却语义）
     #[serde(default = "default_hourly_per_ip")]
     pub hourly_per_ip: usize,
     /// 单请求最大出口尝试轮数（超出后直连兜底）

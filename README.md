@@ -45,14 +45,15 @@ chmod +x tryingopen2api
 | `proxy_file` | `""` | 自备代理文件，每行一个 URL（支持 127.0.0.1，需开 allow_local_proxies） |
 | `node_sources` | `""` | 实验性 SS 订阅直连（逗号分隔 ss:// 或订阅 URL） |
 | `node_base_port` | `19000` | node_sources 的本地桥起始端口 |
-| `hourly_per_ip` | `20` | tryingopen 单 IP 24h 配额（站点硬限制） |
+| `hourly_per_ip` | `20` | tryingopen 单 IP 每小时配额（站点硬限制，实测为 20/小时/IP） |
 | `max_attempts` | `3` | 单请求最大代理尝试数 |
 
 环境变量同样可用（大写）：`ALLOW_LOCAL_PROXIES=1`、`DIRECT_FALLBACK=false` 等。
 
 ## 容量估算
 
-- 容量 = **唯一出口 IP 数** × 20/天（不是代理条目数；很多节点共用出口 IP）
+- 容量 = **唯一出口 IP 数** × 20/小时（不是代理条目数；很多节点共用出口 IP）
+- 按 150 个唯一出口算：150 × 20 = 3000/小时，远超一般需求
 - 公共免费节点大多是机房 IP，可能被 Vercel 风控挑出来，需实测
 
 ## 说明

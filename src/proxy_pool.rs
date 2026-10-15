@@ -585,11 +585,11 @@ impl ProxyPool {
                 break;
             }
         }
-        // 429 熔断出口 IP：同一出口 IP 的 20/天配额已空，24h 内不再试
+        // 429 熔断出口 IP：站点限流是 20/小时/IP，熔断 1 小时+余量
         if rate_limited {
             if let Some(ip) = exit_ip {
-                data.dead_exit_ips.insert(ip, t + 86400.0);
-                tracing::debug!("出口 IP 熔断 24h（429 配额空）");
+                data.dead_exit_ips.insert(ip, t + 3900.0);
+                tracing::debug!("出口 IP 熔断 65 分钟（429 配额空）");
             }
         }
         if found {
