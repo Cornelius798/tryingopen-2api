@@ -1,0 +1,490 @@
+//! 模型注册表：TryingOpen 静态目录（12 个开源模型）+ 上游首页 chunk 动态刷新
+//!
+//! 数据来源（2026-09-24 抓包 https://www.tryingopen.com HAR + 07cl9ce_x7idy.js）：
+//! 全站完全匿名（无需 Cookie）；按「每 IP 每日（24h UTC）约 20 次」限流。
+//! 上游请求 id 就是 `provider/model`（如 `qwen/qwen3.8-27b`）。
+
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+pub const DEFAULT_MODEL: &str = "qwen/qwen3.8-27b";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelMeta {
+    /// 上游请求 id（provider/model）
+    pub id: String,
+    /// 展示名
+    pub label: String,
+    /// 家族（maker）
+    pub family: String,
+    /// 上下文窗口（"128k"/"1M" 原文）
+    pub context: String,
+    /// 上下文窗口数值（token 数）
+    pub context_window: i64,
+    /// 每 1M token 输入价（USD，站点 pricePerMTok）
+    pub price_per_mtok: f64,
+    /// 支持工具调用
+    pub tools: bool,
+    /// 支持图片输入
+    pub vision: bool,
+    /// 支持思考/推理（reasoning_* SSE 事件）
+    #[serde(default)]
+    pub reasoning: bool,
+    /// 单会话上游最大消息数上限（如 kimi-k3=5；None=无限制）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_limit: Option<u32>,
+    /// 上游建议的降级模型（cheaperFallbackId；429/不可用时优先于此再走 fallback_models）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cheaper_fallback: Option<String>,
+    /// 目录来源：dynamic（上游抓取）/ static（内置兜底；抓取失败时即 fallback 状态）
+    #[serde(default = "default_source")]
+    pub source: String,
+}
+
+fn default_source() -> String {
+    "static".into()
+}
+
+/// 静态目录（与 07cl9ce_x7idy.js 快照一致；动态抓取失败时兜底）
+pub fn catalog() -> Vec<ModelMeta> {
+    let mut v = Vec::new();
+    macro_rules! m {
+        ($id:expr, $label:expr, $family:expr, $ctx:expr, $price:expr, $tools:expr, $vision:expr, $reasoning:expr, $limit:expr, $cheaper:expr) => {
+            v.push(ModelMeta {
+                id: $id.into(),
+                label: $label.into(),
+                family: $family.into(),
+                context: $ctx.into(),
+                context_window: parse_ctx($ctx),
+                price_per_mtok: $price,
+                tools: $tools,
+                vision: $vision,
+                reasoning: $reasoning,
+                message_limit: $limit,
+                cheaper_fallback: $cheaper,
+                source: "static".into(),
+            });
+        };
+    }
+    m!(
+        "qwen/qwen3.8-27b",
+        "Qwen3.8 27B",
+        "Alibaba",
+        "262k",
+        3.2,
+        true,
+        true,
+        true,
+        None,
+        None
+    );
+    m!(
+        "nvidia/nemotron-3.5-lightning",
+        "Nemotron 3.5 Lightning",
+        "NVIDIA",
+        "262k",
+        0.25,
+        true,
+        false,
+        true,
+        None,
+        None
+    );
+    m!(
+        "deepseek/deepseek-v4-flash-0731",
+        "DeepSeek V4 Flash",
+        "DeepSeek",
+        "1M",
+        0.18,
+        true,
+        false,
+        true,
+        None,
+        None
+    );
+    m!(
+        "deepseek/deepseek-v4-pro-0813",
+        "DeepSeek V4 Pro",
+        "DeepSeek",
+        "1M",
+        1.98,
+        true,
+        false,
+        true,
+        None,
+        None
+    );
+    m!(
+        "google/gemma-4-31b-it",
+        "Gemma 4 31B",
+        "Google",
+        "256k",
+        0.4,
+        true,
+        true,
+        true,
+        None,
+        None
+    );
+    m!(
+        "google/gemma-4-26b-a4b-it",
+        "Gemma 4 26B",
+        "Google",
+        "256k",
+        0.4,
+        true,
+        true,
+        true,
+        None,
+        None
+    );
+    m!(
+        "openai/gpt-oss-120b",
+        "GPT-OSS 120B",
+        "OpenAI",
+        "128k",
+        0.6,
+        true,
+        false,
+        false,
+        None,
+        None
+    );
+    m!(
+        "meta/muse-glimmer-30b",
+        "Muse Glimmer 30B",
+        "Meta",
+        "131k",
+        1.5,
+        true,
+        false,
+        false,
+        None,
+        None
+    );
+    m!(
+        "moonshotai/kimi-k3",
+        "Kimi K3",
+        "Moonshot AI",
+        "1M",
+        8.5,
+        true,
+        true,
+        true,
+        Some(5),
+        Some("minimax/minimax-m3".to_string())
+    );
+    m!(
+        "minimax/minimax-m3",
+        "MiniMax M3",
+        "MiniMax",
+        "1M",
+        1.2,
+        true,
+        true,
+        true,
+        None,
+        None
+    );
+    m!(
+        "thinkingmachines/inkling-small",
+        "Inkling Small",
+        "ThinkingMachines",
+        "524k",
+        1.2,
+        true,
+        true,
+        true,
+        None,
+        None
+    );
+    m!(
+        "z-ai/glm-5.2",
+        "GLM 5.2",
+        "Zhipu AI",
+        "1M",
+        1.54,
+        true,
+        false,
+        true,
+        None,
+        None
+    );
+    v
+}
+
+pub fn parse_ctx(ctx: &str) -> i64 {
+    let s = ctx.trim().to_ascii_lowercase().replace(' ', "");
+    let (num, unit) = match s.chars().last() {
+        Some('k') => (&s[..s.len() - 1], 1024i64),
+        Some('m') => (&s[..s.len() - 1], 1024 * 1024),
+        _ => (s.as_str(), 1),
+    };
+    num.parse::<f64>()
+        .map(|n| (n * unit as f64) as i64)
+        .unwrap_or(0)
+}
+
+#[derive(Debug, Clone)]
+pub struct ModelRegistry {
+    inner: Arc<RwLock<Vec<ModelMeta>>>,
+    /// 上游已移除/报 model-not-found 的模型（请求时自动走 fallback、/v1/models 隐藏）
+    forced_offline: Arc<RwLock<HashSet<String>>>,
+}
+
+impl Default for ModelRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ModelRegistry {
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(RwLock::new(catalog())),
+            forced_offline: Arc::new(RwLock::new(HashSet::new())),
+        }
+    }
+
+    /// 模型是否被强制下线（上游移除 / model-not-found）
+    async fn is_offline(&self, id: &str) -> bool {
+        self.forced_offline.read().await.contains(id)
+    }
+
+    /// 标记模型下线（上游 4xx model-not-found）
+    pub async fn mark_offline(&self, id: &str) {
+        self.forced_offline.write().await.insert(id.to_string());
+    }
+
+    /// 解除下线（目录刷新带回来等）
+    pub async fn unmark_offline(&self, id: &str) {
+        self.forced_offline.write().await.remove(id);
+    }
+
+    /// 当前离线 id 集合（测试/审计用）
+    pub async fn offline_ids(&self) -> Vec<String> {
+        self.forced_offline.read().await.iter().cloned().collect()
+    }
+
+    /// 目录来源标记：设置为 "fallback"（动态抓取失败时由调用方标记）
+    pub async fn mark_static_fallback(&self) {
+        let mut list = self.inner.write().await;
+        for m in list.iter_mut() {
+            if m.source == "static" {
+                m.source = "fallback".into();
+            }
+        }
+    }
+
+    pub async fn all(&self) -> Vec<ModelMeta> {
+        let offline = self.forced_offline.read().await;
+        let list = self.inner.read().await;
+        list.iter()
+            .filter(|m| !offline.contains(&m.id))
+            .cloned()
+            .collect()
+    }
+
+    pub async fn meta(&self, id: &str) -> Option<ModelMeta> {
+        if self.is_offline(id).await {
+            return None;
+        }
+        let list = self.inner.read().await;
+        list.iter().find(|m| m.id == id).cloned()
+    }
+
+    pub async fn has_model(&self, id: &str) -> bool {
+        if self.is_offline(id).await {
+            return false;
+        }
+        self.inner.read().await.iter().any(|m| m.id == id)
+    }
+
+    /// 归一化：带上 provider 前缀的完整 id 原样；裸 model 名优先匹配目录
+    pub async fn normalize(&self, requested: &str) -> String {
+        let r = requested.trim();
+        if r.is_empty() {
+            return DEFAULT_MODEL.to_string();
+        }
+        if self.has_model(r).await {
+            return r.to_string();
+        }
+        // 裸名（如 deepseek-v4-flash-0731）→ 补 provider 前缀（跳过离线模型）
+        let offline = self.forced_offline.read().await;
+        let list = self.inner.read().await;
+        let matched = list.iter().find_map(|m| {
+            if offline.contains(&m.id) {
+                return None;
+            }
+            if let Some(surface) = m.id.rsplit('/').next() {
+                if surface == r {
+                    return Some(m.id.clone());
+                }
+            }
+            if m.label.eq_ignore_ascii_case(r) {
+                return Some(m.id.clone());
+            }
+            None
+        });
+        matched.unwrap_or_else(|| r.to_string())
+    }
+
+    /// 降级链：请求模型不在目录/不可用时按 fallback 顺序取
+    /// fallbacks 来自 config.fallback_models（可配置）；为空时用内置默认
+    pub async fn resolve(&self, requested: &str, fallbacks: &[String]) -> String {
+        let norm = self.normalize(requested).await;
+        if self.has_model(&norm).await {
+            return norm;
+        }
+        let list: Vec<String> = if fallbacks.is_empty() {
+            vec![
+                "deepseek/deepseek-v4-flash-0731".into(),
+                "z-ai/glm-5.2".into(),
+                "minimax/minimax-m3".into(),
+            ]
+        } else {
+            fallbacks.to_vec()
+        };
+        for fb in list {
+            if self.has_model(&fb).await {
+                return fb;
+            }
+        }
+        DEFAULT_MODEL.to_string()
+    }
+
+    /// 用上游首页/JS chunk 解析结果替换静态目录（抓不到则保留静态）
+    ///
+    /// 保留兜底元数据：上游动态记录常不含 `messageLimit`/`cheaperFallbackId`
+    /// （2026-09-26 实测上游 chunk 已不带这三字段），直接整体替换会把静态兜底
+    /// （如 kimi messageLimit=5 / cheaper=minimax-m3）清空。这里对动态记录中
+    /// 缺失的字段回填静态目录同 id 的既有值；上游显式提供的新值优先覆盖。
+    ///
+    /// 锁序契约（H1）：全仓统一 `forced_offline → inner`，任何时刻最多持一个锁，
+    /// 不与 `all()`/`normalize()`（forced_offline 读 → inner 读）形成 AB-BA 等待环。
+    /// 因此这里把 static_meta 快照、目录写入、offline 清理拆成三个互不嵌套的独立
+    /// 作用域：inner 写锁用毕即释放，再单独取 forced_offline 写锁。
+    pub async fn replace_from_parsed(&self, records: Vec<ModelMeta>) -> usize {
+        if records.is_empty() {
+            return self.inner.read().await.len();
+        }
+        // 静态兜底快照（id → 元数据），用于回填缺失字段；读后即释放
+        let static_meta: std::collections::HashMap<String, ModelMeta> = {
+            let list = self.inner.read().await;
+            list.iter().map(|m| (m.id.clone(), m.clone())).collect()
+        };
+        // 纯内存合并（无锁）：上游缺失 message_limit/cheaper_fallback 时回填静态兜底
+        let mut merged: Vec<ModelMeta> = Vec::with_capacity(records.len());
+        for mut m in records {
+            if m.message_limit.is_none() {
+                if let Some(prev) = static_meta.get(&m.id) {
+                    m.message_limit = prev.message_limit;
+                }
+            }
+            if m.cheaper_fallback.is_none() {
+                if let Some(prev) = static_meta.get(&m.id) {
+                    m.cheaper_fallback = prev.cheaper_fallback.clone();
+                }
+            }
+            merged.push(m);
+        }
+        // 新目录 id 集合（offline 语义重建用；无锁纯计算）
+        let present: HashSet<String> = merged.iter().map(|m| m.id.clone()).collect();
+        let n = merged.len();
+        // 写目录：仅持 inner 写锁，作用域结束即释放
+        {
+            let mut list = self.inner.write().await;
+            *list = merged;
+        }
+        // 以新目录为准重建 offline 语义（H2）：收到非空 records = 上游目录刷新成功，
+        // 「重新出现在新目录」的 id 自动解除下线（mark_offline 期间的下线恢复），
+        // 仅保留「仍不在新目录」的 offline 标记（真·被上游移除）。
+        // 单独取 forced_offline 写锁，与 inner 不嵌套、不重入。
+        {
+            let mut offline = self.forced_offline.write().await;
+            offline.retain(|id| !present.contains(id));
+        }
+        n
+    }
+}
+
+/// OpenAI /v1/models 形状（含能力 meta，供 UI 真实展示工具/视觉/上下文/价格）
+#[derive(Serialize, Deserialize)]
+pub struct OpenAIModelObject {
+    pub id: String,
+    pub object: String,
+    pub created: i64,
+    pub owned_by: String,
+    /// 展示名
+    pub label: String,
+    /// 上下文窗口数值（token 数）
+    pub context_window: i64,
+    /// 上下文原文（"128k"）
+    pub context: String,
+    /// 每 1M token 输入价（USD）
+    pub price_per_mtok: f64,
+    /// 支持工具调用
+    pub tools: bool,
+    /// 支持图片输入
+    pub vision: bool,
+    /// 支持思考/推理
+    pub reasoning: bool,
+    /// 单会话消息数上限（上游 messageLimit；None=无限制）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_limit: Option<u32>,
+    /// 上游建议降级模型（cheaperFallbackId）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cheaper_fallback: Option<String>,
+}
+
+/// Anthropic /v1/models 形状
+#[derive(Serialize, Deserialize)]
+pub struct AnthropicModelObject {
+    pub id: String,
+    pub name: String,
+    pub created: i64,
+    pub input_modalities: Vec<String>,
+    pub output_modalities: Vec<String>,
+    pub context_window: i64,
+    /// 支持思考/推理
+    pub reasoning: bool,
+}
+
+pub fn openai_models(list: &[ModelMeta]) -> Vec<OpenAIModelObject> {
+    list.iter()
+        .map(|m| OpenAIModelObject {
+            id: m.id.clone(),
+            object: "model".into(),
+            created: 0,
+            owned_by: m.family.clone(),
+            label: m.label.clone(),
+            context_window: m.context_window,
+            context: m.context.clone(),
+            price_per_mtok: m.price_per_mtok,
+            tools: m.tools,
+            vision: m.vision,
+            reasoning: m.reasoning,
+            message_limit: m.message_limit,
+            cheaper_fallback: m.cheaper_fallback.clone(),
+        })
+        .collect()
+}
+
+pub fn anthropic_models(list: &[ModelMeta]) -> Vec<AnthropicModelObject> {
+    list.iter()
+        .map(|m| AnthropicModelObject {
+            id: m.id.clone(),
+            name: m.label.clone(),
+            created: 0,
+            input_modalities: if m.vision {
+                vec!["text".into(), "image".into()]
+            } else {
+                vec!["text".into()]
+            },
+            output_modalities: vec!["text".into()],
+            context_window: m.context_window,
+            reasoning: m.reasoning,
+        })
+        .collect()
+}
